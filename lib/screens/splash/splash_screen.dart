@@ -1,11 +1,16 @@
 import 'package:flutter/material.dart';
 import '../../theme/app_theme.dart';
+import '../../widgets/alert247_logo.dart';
 import '../onboarding/onboarding_screen.dart';
 
-/// Splash flow:
-///   Screen 1 — Alert 247 logo fades in with a red pulse glow (2–2.5s)
-///   Screen 2 — "from" + Parm logo brand attribution, white on navy (1.5s)
-/// then navigates to onboarding.
+/// A single, continuous splash screen — no route/page swap in between.
+/// One timeline crossfades from the Alert 247 mark into the
+/// "from [Parm logo]" brand credit, then hands off to onboarding.
+///
+///   0%   – 6%   logo scales/fades in
+///   6%   – 55%  logo holds, with a soft pulsing glow
+///   55%  – 65%  crossfade: logo out, brand credit in
+///   65%  – 100% brand credit holds
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -15,61 +20,29 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  late final AnimationController _logoController;
-  late final Animation<double> _logoFade;
-  late final Animation<double> _logoScale;
+  static const _totalDuration = Duration(milliseconds: 3900);
 
-  late final AnimationController _pulseController;
-
-  late final AnimationController _brandController;
-  late final Animation<double> _brandFade;
-
-  bool _showBrandScreen = false;
+  late final AnimationController _timeline;
+  late final AnimationController _pulse;
 
   @override
   void initState() {
     super.initState();
 
-    // --- Screen 1: logo fade-in + pulse ---
-    _logoController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 900),
-    );
-    _logoFade = CurvedAnimation(parent: _logoController, curve: Curves.easeOut);
-    _logoScale = Tween<double>(begin: 0.85, end: 1.0).animate(
-      CurvedAnimation(parent: _logoController, curve: Curves.easeOutBack),
-    );
+    _timeline = AnimationController(vsync: this, duration: _totalDuration)
+      ..addStatusListener((status) {
+        if (status == AnimationStatus.completed) _goToOnboarding();
+      })
+      ..forward();
 
-    _pulseController = AnimationController(
+    _pulse = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1200),
+      duration: const Duration(milliseconds: 1300),
     )..repeat(reverse: true);
-
-    // --- Screen 2: brand attribution fade-in ---
-    _brandController = AnimationController(
-      vsync: this,
-      duration: const Duration(milliseconds: 600),
-    );
-    _brandFade =
-        CurvedAnimation(parent: _brandController, curve: Curves.easeIn);
-
-    _runSequence();
   }
 
-  Future<void> _runSequence() async {
-    _logoController.forward();
-
-    // Screen 1 total duration ~2.4s before transitioning.
-    await Future.delayed(const Duration(milliseconds: 2400));
+  void _goToOnboarding() {
     if (!mounted) return;
-
-    setState(() => _showBrandScreen = true);
-    _brandController.forward();
-
-    // Screen 2 lasts ~1.5s.
-    await Future.delayed(const Duration(milliseconds: 1500));
-    if (!mounted) return;
-
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
         transitionDuration: const Duration(milliseconds: 500),
@@ -82,10 +55,28 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    _logoController.dispose();
-    _pulseController.dispose();
-    _brandController.dispose();
+    _timeline.dispose();
+    _pulse.dispose();
     super.dispose();
+  }
+
+  double _logoOpacity(double t) {
+    if (t < 0.06) return t / 0.06;
+    if (t < 0.55) return 1;
+    if (t < 0.65) return 1 - ((t - 0.55) / 0.10);
+    return 0;
+  }
+
+  double _brandOpacity(double t) {
+    if (t < 0.55) return 0;
+    if (t < 0.65) return (t - 0.55) / 0.10;
+    return 1;
+  }
+
+  double _logoScale(double t) {
+    final progress = (t / 0.06).clamp(0.0, 1.0);
+    final eased = Curves.easeOutBack.transform(progress);
+    return 0.85 + (eased * 0.15);
   }
 
   @override
@@ -93,114 +84,87 @@ class _SplashScreenState extends State<SplashScreen>
     return Scaffold(
       body: Container(
         decoration: const BoxDecoration(gradient: AppColors.navyGlow),
-        child: AnimatedSwitcher(
-          duration: const Duration(milliseconds: 400),
-          child: _showBrandScreen ? _buildBrandScreen() : _buildLogoScreen(),
-        ),
-      ),
-    );
-  }
+        child: SafeArea(
+          child: Center(
+            child: AnimatedBuilder(
+              animation: Listenable.merge([_timeline, _pulse]),
+              builder: (context, _) {
+                final t = _timeline.value;
+                final glow = 0.30 + (_pulse.value * 0.20);
 
-  // Screen 1
-  Widget _buildLogoScreen() {
-    return Center(
-      key: const ValueKey('logo-screen'),
-      child: FadeTransition(
-        opacity: _logoFade,
-        child: ScaleTransition(
-          scale: _logoScale,
-          child: AnimatedBuilder(
-            animation: _pulseController,
-            builder: (context, child) {
-              final glow = 0.35 + (_pulseController.value * 0.25);
-              return Container(
-                padding: const EdgeInsets.all(36),
-                decoration: BoxDecoration(
-                  shape: BoxShape.circle,
-                  gradient: AppColors.redPulse(opacity: glow),
-                ),
-                child: child,
-              );
-            },
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Image.asset(
-                  'assets/images/alert247_logo.jpg',
-                  width: 200,
-                  height: 200,
-                  fit: BoxFit.contain,
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  'ALERT 247',
-                  style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 30,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 4,
-                    shadows: [
-                      Shadow(
-                        color: AppColors.emergencyRed.withOpacity(0.8),
-                        blurRadius: 20,
+                return Stack(
+                  alignment: Alignment.center,
+                  children: [
+                    // Logo phase.
+                    Opacity(
+                      opacity: _logoOpacity(t),
+                      child: Transform.scale(
+                        scale: _logoScale(t),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(30),
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                gradient: AppColors.redPulse(opacity: glow),
+                              ),
+                              child: const Alert247Logo(size: 190),
+                            ),
+                            const SizedBox(height: 18),
+                            const Text(
+                              'ALERT 247',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 30,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 4,
+                              ),
+                            ),
+                            const SizedBox(height: 6),
+                            const Text(
+                              'Emergency Help. Anytime. Anywhere.',
+                              style: TextStyle(
+                                color: Colors.white70,
+                                fontSize: 13,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 6),
-                const Text(
-                  'Emergency Help. Anytime. Anywhere.',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 13,
-                    letterSpacing: 0.5,
-                  ),
-                ),
-              ],
+                    ),
+                    // Brand credit phase — "from" + Parm logo only.
+                    Opacity(
+                      opacity: _brandOpacity(t),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text(
+                            'from',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w400,
+                              letterSpacing: 1,
+                            ),
+                          ),
+                          const SizedBox(height: 18),
+                          Image.asset(
+                            'assets/images/parm_logo.png',
+                            width: 220,
+                            fit: BoxFit.contain,
+                            color: Colors.white,
+                            colorBlendMode: BlendMode.srcIn,
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                );
+              },
             ),
           ),
-        ),
-      ),
-    );
-  }
-
-  // Screen 2 — "from PARM LABS" brand attribution.
-  Widget _buildBrandScreen() {
-    return Center(
-      key: const ValueKey('brand-screen'),
-      child: FadeTransition(
-        opacity: _brandFade,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Text(
-              'from',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 16,
-                fontWeight: FontWeight.w400,
-                letterSpacing: 1,
-              ),
-            ),
-            const SizedBox(height: 18),
-            Image.asset(
-              'assets/images/parm_logo.png',
-              width: 220,
-              fit: BoxFit.contain,
-              color: Colors.white,
-              colorBlendMode: BlendMode.srcIn,
-            ),
-            const SizedBox(height: 10),
-            const Text(
-              'PARM LABS',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 14,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 4,
-              ),
-            ),
-          ],
         ),
       ),
     );
