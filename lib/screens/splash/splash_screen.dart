@@ -3,14 +3,11 @@ import '../../theme/app_theme.dart';
 import '../../widgets/alert247_logo.dart';
 import '../onboarding/onboarding_screen.dart';
 
-/// A single, continuous splash screen — no route/page swap in between.
-/// One timeline crossfades from the Alert 247 mark into the
-/// "from [Parm logo]" brand credit, then hands off to onboarding.
-///
-///   0%   – 6%   logo scales/fades in
-///   6%   – 55%  logo holds, with a soft pulsing glow
-///   55%  – 65%  crossfade: logo out, brand credit in
-///   65%  – 100% brand credit holds
+/// A single splash screen — matching the "from Meta" pattern used by
+/// Instagram/WhatsApp/Facebook: the main Alert 247 mark is centered,
+/// and the "from PARM" brand credit sits small at the bottom of the
+/// *same* screen. There is no second screen/route — everything fades
+/// in together, holds, then hands off once to onboarding.
 class SplashScreen extends StatefulWidget {
   const SplashScreen({super.key});
 
@@ -20,16 +17,16 @@ class SplashScreen extends StatefulWidget {
 
 class _SplashScreenState extends State<SplashScreen>
     with TickerProviderStateMixin {
-  static const _totalDuration = Duration(milliseconds: 3900);
+  static const _totalDuration = Duration(milliseconds: 2800);
 
-  late final AnimationController _timeline;
+  late final AnimationController _entrance;
   late final AnimationController _pulse;
 
   @override
   void initState() {
     super.initState();
 
-    _timeline = AnimationController(vsync: this, duration: _totalDuration)
+    _entrance = AnimationController(vsync: this, duration: _totalDuration)
       ..addStatusListener((status) {
         if (status == AnimationStatus.completed) _goToOnboarding();
       })
@@ -55,26 +52,17 @@ class _SplashScreenState extends State<SplashScreen>
 
   @override
   void dispose() {
-    _timeline.dispose();
+    _entrance.dispose();
     _pulse.dispose();
     super.dispose();
   }
 
-  double _logoOpacity(double t) {
-    if (t < 0.06) return t / 0.06;
-    if (t < 0.55) return 1;
-    if (t < 0.65) return 1 - ((t - 0.55) / 0.10);
-    return 0;
-  }
+  // Everything fades/scales in together over the first 20% of the
+  // timeline, then holds for the rest of the splash duration.
+  double _fadeIn(double t) => (t / 0.20).clamp(0.0, 1.0);
 
-  double _brandOpacity(double t) {
-    if (t < 0.55) return 0;
-    if (t < 0.65) return (t - 0.55) / 0.10;
-    return 1;
-  }
-
-  double _logoScale(double t) {
-    final progress = (t / 0.06).clamp(0.0, 1.0);
+  double _scaleIn(double t) {
+    final progress = (t / 0.20).clamp(0.0, 1.0);
     final eased = Curves.easeOutBack.transform(progress);
     return 0.85 + (eased * 0.15);
   }
@@ -85,21 +73,22 @@ class _SplashScreenState extends State<SplashScreen>
       body: Container(
         decoration: const BoxDecoration(gradient: AppColors.navyGlow),
         child: SafeArea(
-          child: Center(
-            child: AnimatedBuilder(
-              animation: Listenable.merge([_timeline, _pulse]),
-              builder: (context, _) {
-                final t = _timeline.value;
-                final glow = 0.30 + (_pulse.value * 0.20);
+          child: AnimatedBuilder(
+            animation: Listenable.merge([_entrance, _pulse]),
+            builder: (context, _) {
+              final t = _entrance.value;
+              final opacity = _fadeIn(t);
+              final scale = _scaleIn(t);
+              final glow = 0.30 + (_pulse.value * 0.20);
 
-                return Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    // Logo phase.
-                    Opacity(
-                      opacity: _logoOpacity(t),
+              return Stack(
+                children: [
+                  // Main mark, centered.
+                  Center(
+                    child: Opacity(
+                      opacity: opacity,
                       child: Transform.scale(
-                        scale: _logoScale(t),
+                        scale: scale,
                         child: Column(
                           mainAxisSize: MainAxisSize.min,
                           children: [
@@ -134,36 +123,42 @@ class _SplashScreenState extends State<SplashScreen>
                         ),
                       ),
                     ),
-                    // Brand credit phase — "from" + Parm logo only.
-                    Opacity(
-                      opacity: _brandOpacity(t),
+                  ),
+
+                  // "from PARM" brand credit — small, bottom of the
+                  // same screen, Meta-style.
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 32,
+                    child: Opacity(
+                      opacity: opacity,
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
                           const Text(
                             'from',
                             style: TextStyle(
-                              color: Colors.white,
-                              fontSize: 16,
-                              fontWeight: FontWeight.w400,
-                              letterSpacing: 1,
+                              color: Colors.white60,
+                              fontSize: 12,
+                              letterSpacing: 0.5,
                             ),
                           ),
-                          const SizedBox(height: 18),
+                          const SizedBox(height: 6),
                           Image.asset(
                             'assets/images/parm_logo.png',
-                            width: 220,
+                            width: 110,
                             fit: BoxFit.contain,
-                            color: Colors.white,
+                            color: Colors.white70,
                             colorBlendMode: BlendMode.srcIn,
                           ),
                         ],
                       ),
                     ),
-                  ],
-                );
-              },
-            ),
+                  ),
+                ],
+              );
+            },
           ),
         ),
       ),
